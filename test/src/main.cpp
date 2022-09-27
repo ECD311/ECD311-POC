@@ -7,8 +7,8 @@
 
 #define FORMAT_SPIFFS_IF_FAILED false
 
-const char *ssid = ***REMOVED***;
-const char *password = ***REMOVED***;
+const char *ssid = "nah no free wifi here";
+const char *password = "no you don't";
 
 void listDir(fs::FS &fs, const char *dirname, uint8_t levels) {
     Serial.printf("Listing directory: %s\r\n", dirname);
