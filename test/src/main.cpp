@@ -18,6 +18,7 @@ const char *ssh_password = "password";
 int ssh_port = 22;
 
 const char *scp_path = ".";  // this is temporary
+SET_LOOP_TASK_STACK_SIZE(16 * 1024); // try 16k stack
 
 void wifi_setup(const char *ssid, const char *password) {
     WiFi.mode(WIFI_STA);
