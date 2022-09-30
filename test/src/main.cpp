@@ -19,6 +19,74 @@ int ssh_port = 22;
 
 const char *scp_path = ".";  // this is temporary
 
+void wifi_setup(const char *ssid, const char *password) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    Serial.println("Connecting...");
+    while (WiFi.status() != WL_CONNECTED) {
+        Serial.print(".");
+        delay(500);
+    }
+    Serial.println(WiFi.localIP());
+}
+
+int ssh_setup(ssh_session session, const char *ssh_host, int ssh_port) {
+    int rc;
+
+    ssh_options_set(session, SSH_OPTIONS_HOST, ssh_host);
+    ssh_options_set(session, SSH_OPTIONS_PORT, &ssh_port);
+
+    Serial.println("SSH options set");
+
+    rc = ssh_connect(session);
+    Serial.println("ssh_connect run");
+    if (rc != SSH_OK) {
+        Serial.printf("Error connecting to %s: %s\n", ssh_host,
+                      ssh_get_error(session));
+        return rc;
+    }
+    Serial.println("SSH connected");
+    return 0;
+}
+
+int ssh_authenticate(ssh_session session, const char *host, const char *user,
+                     const char *password) {
+    int rc;
+
+    rc = ssh_userauth_password(session, user, password);
+    if (rc != SSH_OK) {
+        Serial.printf("Error authenticating to %s: %s\n", host,
+                      ssh_get_error(session));
+        return rc;
+    }
+    Serial.println("SSH authenticated");
+    return 0;
+}
+
+ssh_scp scp_setup(int *rc, ssh_session session, const char *scp_path) {
+    ssh_scp scp;
+
+    scp = ssh_scp_new(session, SSH_SCP_WRITE | SSH_SCP_RECURSIVE, scp_path);
+    if (scp == NULL) {
+        Serial.printf("Error creating SCP session: %s\n",
+                      ssh_get_error(session));
+        *rc = -1;
+        return NULL;
+    }
+    Serial.println("Created SCP session");
+
+    *rc = ssh_scp_init(scp);
+    if (*rc != SSH_OK) {
+        Serial.printf("Error initializing SCP session: %s\n",
+                      ssh_get_error(session));
+        ssh_scp_free(scp);
+        return NULL;
+    }
+    Serial.println("Initialized SCP session");
+
+    return scp;
+}
+
 void reset() {
     Serial.println("Restarting");
     WiFi.disconnect();
@@ -122,54 +190,26 @@ void deleteFile(fs::FS &fs, const char *path) {
 void setup() {
     int rc;
     Serial.begin(115200);
-    // put your setup code here, to run once:
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    Serial.println("Connecting...");
-    while (WiFi.status() != WL_CONNECTED) {
-        Serial.print(".");
-        delay(500);
-    }
-    Serial.println(WiFi.localIP());
+    wifi_setup(ssid, password);
 
-    // libssh_begin();
+    Serial.println("wifi connected");
+
+    libssh_begin();
     ssh_session my_ssh_session = ssh_new();
     if (my_ssh_session == NULL) {
         // something went very wrong
         Serial.println("something broke, failed to create ssh session");
         reset();
     }
+    Serial.println("ssh session created");
 
-    ssh_options_set(my_ssh_session, SSH_OPTIONS_HOST, ssh_host);
-    ssh_options_set(my_ssh_session, SSH_OPTIONS_PORT, &ssh_port);
+    ssh_setup(my_ssh_session, ssh_host, ssh_port);
 
-    Serial.println("let's get a ssh connection");
+    // Serial.println("let's get a ssh connection");
 
-    rc = ssh_connect(my_ssh_session);
-    if (rc != SSH_OK) {
-        Serial.printf("Error connecting to %s: ", ssh_host);
-        Serial.printf(ssh_get_error(my_ssh_session));
-        Serial.printf("\n");
-        delay(2000);
-        reset();
-    }
+    ssh_authenticate(my_ssh_session, ssh_host, ssh_user, ssh_password);
 
-    // Serial.println(rc);
-    // Serial.printf(ssh_get_error(my_ssh_session));
-
-    rc = ssh_userauth_password(my_ssh_session, ssh_user, ssh_password);
-    if (rc != SSH_OK) {
-        Serial.printf("Error authenticating to %s: ", ssh_host);
-        Serial.printf(ssh_get_error(my_ssh_session));
-        Serial.printf("\n");
-        delay(2000);
-        reset();
-    }
-
-    // Serial.println(rc);
-    // Serial.printf(ssh_get_error(my_ssh_session));
-
-    Serial.println("ssh should be ready");
+    // Serial.println("ssh should be ready");
 
     // now let's send a file via scp (is this actually an option or do i need to
     // find a sftp implementation?)
@@ -187,38 +227,31 @@ void setup() {
 
     ssh_scp scp;
     int length;
+    int scp_rc = 0;
 
-    scp = ssh_scp_new(my_ssh_session, SSH_SCP_WRITE | SSH_SCP_RECURSIVE,
-                      scp_path);
-
+    scp = scp_setup(&scp_rc, my_ssh_session, scp_path);
     if (scp == NULL) {
-        Serial.printf("Error creating SCP session: %s\n",
-                      ssh_get_error(my_ssh_session));
-        delay(2000);
-        reset();
+        return;
     }
 
-    rc = ssh_scp_init(scp);
-    if (rc != SSH_OK) {
-        Serial.printf("Error initializing SCP session: %s\n",
-                      ssh_get_error(my_ssh_session));
-        ssh_scp_free(scp);
-        delay(2000);
-        reset();
-    }
+    Serial.print(scp_rc);
+    Serial.print("\n");
 
-    File file = SPIFFS.open("/test.txt");
-    while(file.available()){
-        file.read();
-        length++;
-    }
-    //length = strlen(readFile(SPIFFS, "/test.txt"));
+    File file;
+    file = SPIFFS.open("/test.txt");
+
+    length = file.size();
+    file.close();
+
+    Serial.printf("%d\n", length);
     rc = ssh_scp_push_file(scp, "test.txt", length, S_IRUSR | S_IWUSR);
     if (rc != SSH_OK) {
-        Serial.printf("Can't open remote file: %s\n", ssh_get_error(my_ssh_session));
+        Serial.printf("Can't open remote file: %s\n",
+                      ssh_get_error(my_ssh_session));
         delay(2000);
         return;
     }
+    Serial.println("Opened remote file");
 
     char contents[length];
     File file1 = SPIFFS.open("/test.txt");
@@ -227,6 +260,7 @@ void setup() {
         contents[i] = file1.read();
         i++;
     }
+    file1.close();
 
     rc = ssh_scp_write(scp, contents, length);
     if (rc != SSH_OK) {
@@ -234,16 +268,8 @@ void setup() {
                       ssh_get_error(my_ssh_session));
         return;
     }
+    Serial.println("Wrote to remote file");
 
-    /*listDir(SPIFFS, "/", 0);
-    writeFile(SPIFFS, "/hello.txt", "Hello ");
-    appendFile(SPIFFS, "/hello.txt", "World!\r\n");
-    readFile(SPIFFS, "/hello.txt");
-    renameFile(SPIFFS, "/hello.txt", "/foo.txt");
-    readFile(SPIFFS, "/foo.txt");
-    deleteFile(SPIFFS, "/foo.txt");
-    Serial.println("Test complete");
-    */
 }
 
 void loop() {
