@@ -269,7 +269,11 @@ void setup() {
         return;
     }
     Serial.println("Wrote to remote file");
-
+    ssh_scp_close(scp);
+    ssh_scp_free(scp);
+    ssh_disconnect(my_ssh_session);
+    ssh_free(my_ssh_session);
+    ssh_finalize();
 }
 
 void loop() {
