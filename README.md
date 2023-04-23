@@ -10,3 +10,5 @@ currently writes a single file with fixed contents to a remote server once, then
 #### update 2023-04-23
 
 this is no longer likely to be at all relevant for the project in its current state as we found a raspberry pi, but if it needs replacement at some point in the future this could act as a rough baseline to work off of
+
+also includes a partial port of the ESP32 code to something that could run on a hosted system
